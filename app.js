@@ -1,6 +1,5 @@
 let tts = null;
 let audioCtx = null;
-
 Module = {};
 Module.onRuntimeInitialized = function() {
   console.log('Model files downloaded!');
@@ -14,8 +13,8 @@ Module.onRuntimeInitialized = function() {
 };
 
 const speak = function(text) {
-    text = text.trim();
-    if (text.length == 0) {
+    text = text.trim().replace('‌',' ').replace(/(?:https?|ftp):\/\/[\n\S]+/g, '').replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|\uD83C[\uDC00-\uDFFF]|\uD83D[\uDC00-\uDFFF]|[\u2011-\u26FF]|\uD83E[\uDD10-\uDDFF])/g, '');
+   if (text.length == 0) {
         console.log('Please input a non-blank text');
         return;
     }
