@@ -1692,36 +1692,42 @@ if (ENVIRONMENT_IS_NODE) {
         scriptDirectory = scriptDirectory.substr(0, scriptDirectory.replace(/[?#].*/, "").lastIndexOf("/") + 1)
     }
     {
-        read_ = url=>{
-            var xhr = new XMLHttpRequest;
-            xhr.open("GET", url, false);
-            xhr.send(null);
-            return xhr.responseText
-        }
-        ;
+        read_ = (url) => {
+            const response = fetch(url, { method: 'GET', mode: 'cors', cache: 'default' });
+            if (response.ok) {
+                return response.text();
+            } else {
+                console.error(`Error fetching data from ${url}: ${response.status} ${response.statusText}`);
+                return null;
+            }
+        };
         if (ENVIRONMENT_IS_WORKER) {
-            readBinary = url=>{
-                var xhr = new XMLHttpRequest;
-                xhr.open("GET", url, false);
-                xhr.responseType = "arraybuffer";
-                xhr.send(null);
-                return new Uint8Array(xhr.response)
+        readBinary = (url) => {
+            const response = fetch(url, { method: 'GET', mode: 'cors', cache: 'default', responseType: 'arraybuffer' });
+            if (response.ok) {
+                return response.arrayBuffer().then(buffer => new Uint8Array(buffer));
+            } else {
+                console.error(`Error fetching binary data from ${url}: ${response.status} ${response.statusText}`);
+                return null;
             }
         }
-        readAsync = (url,onload,onerror)=>{
-            var xhr = new XMLHttpRequest;
-            xhr.open("GET", url, true);
-            xhr.responseType = "arraybuffer";
-            xhr.onload = ()=>{
-                if (xhr.status == 200 || xhr.status == 0 && xhr.response) {
-                    onload(xhr.response);
-                    return
-                }
-                onerror()
-            }
-            ;
-            xhr.onerror = onerror;
-            xhr.send(null)
+        }
+        readAsync = (url, onload, onerror) => {
+            fetch(url, { method: 'GET', mode: 'cors', cache: 'default', responseType: 'arraybuffer' })
+                .then((response) => {
+                    if (response.ok) {
+                        return response.arrayBuffer();
+                    } else {
+                        throw new Error(`Error fetching data from ${url}: ${response.status} ${response.statusText}`);
+                    }
+                })
+                .then((buffer) => {
+                    onload(buffer);
+                })
+                .catch((error) => {
+                    console.error(error);
+                    onerror();
+                });
         }
     }
 } else {}
@@ -4205,38 +4211,64 @@ var FS = {
         }
         ;
         LazyUint8Array.prototype.cacheLength = function LazyUint8Array_cacheLength() {
-            var xhr = new XMLHttpRequest;
-            xhr.open("HEAD", url, false);
-            xhr.send(null);
-            if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304))
-                throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
-            var datalength = Number(xhr.getResponseHeader("Content-length"));
-            var header;
-            var hasByteServing = (header = xhr.getResponseHeader("Accept-Ranges")) && header === "bytes";
-            var usesGzip = (header = xhr.getResponseHeader("Content-Encoding")) && header === "gzip";
-            var chunkSize = 1024 * 1024;
-            if (!hasByteServing)
-                chunkSize = datalength;
-            var doXHR = (from,to)=>{
-                if (from > to)
-                    throw new Error("invalid range (" + from + ", " + to + ") or no bytes requested!");
-                if (to > datalength - 1)
-                    throw new Error("only " + datalength + " bytes available! programmer error!");
-                var xhr = new XMLHttpRequest;
-                xhr.open("GET", url, false);
-                if (datalength !== chunkSize)
-                    xhr.setRequestHeader("Range", "bytes=" + from + "-" + to);
-                xhr.responseType = "arraybuffer";
-                if (xhr.overrideMimeType) {
-                    xhr.overrideMimeType("text/plain; charset=x-user-defined")
+               const options = {
+                    method: "HEAD",
+                    mode: "cors", // You can adjust the mode based on your requirements
+                };
+                return fetch(url, options)
+                    .then((response) => {
+                        if (!(response.status >= 200 && response.status < 300 || response.status === 304)) {
+                            throw new Error(`Couldn't load ${url}. Status: ${response.status}`);
+                        }
+                        return response;
+                    })
+                    .then((response) => {
+                        const datalength = Number(response.headers.get("Content-Length"));
+                        const hasByteServing = response.headers.get("Accept-Ranges") === "bytes";
+                        const usesGzip = response.headers.get("Content-Encoding") === "gzip";
+                        const chunkSize = 1024 * 1024;
+                        if (!hasByteServing)
+                            chunkSize = datalength;
+                    })
+                    .catch((error) => {
+                        console.error("Error fetching data:", error.message);
+                    });
+            function doFETCH(from, to) {
+                if (from > to) {
+                    throw new Error(`Invalid range (${from}, ${to}) or no bytes requested!`);
                 }
-                xhr.send(null);
-                if (!(xhr.status >= 200 && xhr.status < 300 || xhr.status === 304))
-                    throw new Error("Couldn't load " + url + ". Status: " + xhr.status);
-                if (xhr.response !== undefined) {
-                    return new Uint8Array(xhr.response || [])
+                if (to > datalength - 1) {
+                    throw new Error(`Only ${datalength} bytes available! Programmer error!`);
                 }
-                return intArrayFromString(xhr.responseText || "", true)
+
+                const headers = {};
+                if (datalength !== chunkSize) {
+                    headers["Range"] = `bytes=${from}-${to}`;
+                }
+
+                const options = {
+                    method: "GET",
+                    headers: headers,
+                    responseType: "arraybuffer",
+                };
+
+                return fetch(url, options)
+                    .then((response) => {
+                        if (!(response.status >= 200 && response.status < 300 || response.status === 304)) {
+                            throw new Error(`Couldn't load ${url}. Status: ${response.status}`);
+                        }
+                        return response;
+                    })
+                    .then((response) => {
+                        if (response.body) {
+                            return new Uint8Array(response.body);
+                        } else {
+                            return intArrayFromString(response.text || "", true);
+                        }
+                    })
+                    .catch((error) => {
+                        console.error("Error fetching data:", error.message);
+                    });
             }
             ;
             var lazyArray = this;
@@ -4245,10 +4277,10 @@ var FS = {
                 var end = (chunkNum + 1) * chunkSize - 1;
                 end = Math.min(end, datalength - 1);
                 if (typeof lazyArray.chunks[chunkNum] == "undefined") {
-                    lazyArray.chunks[chunkNum] = doXHR(start, end)
+                    lazyArray.chunks[chunkNum] = doFETCH(start, end)
                 }
                 if (typeof lazyArray.chunks[chunkNum] == "undefined")
-                    throw new Error("doXHR failed!");
+                    throw new Error("doFETCH failed!");
                 return lazyArray.chunks[chunkNum]
             }
             );
